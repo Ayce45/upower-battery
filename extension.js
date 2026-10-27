@@ -17,6 +17,10 @@ const xml = '<node>\
 </node>';
 const PowerManagerProxy = Gio.DBusProxy.makeProxyWrapper(xml);
 const BUS_NAME = 'org.freedesktop.UPower';
+// Ajout local : appareils hors UPower lus par commande (ex. jabridge pour un casque Jabra
+// via dongle USB). Chaque ligne de sortie « Nom: 97% » donne un appareil.
+const COMMANDS_FILE = GLib.build_filenamev([GLib.get_user_config_dir(), 'upower-battery', 'commands.json']);
+const COMMAND_POLL_SECONDS = 120;
 
 
 var Log = function (msg) {
@@ -56,11 +60,17 @@ export default class UpowerBatteryExtension extends Extension {
 			this._refresh();
 		});
 		this._once = GLib.timeout_add(
-			GLib.PRIORITY_DEFAULT, 10, 
+			GLib.PRIORITY_DEFAULT, 10,
 			() => {
 			  this._once = null;
 			  this._refresh();
 			  return false;
+		});
+		this._commandDevices = [];
+		this._pollCommands();
+		this._commandTimer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, COMMAND_POLL_SECONDS, () => {
+			this._pollCommands();
+			return GLib.SOURCE_CONTINUE;
 		});
 	}
 
@@ -78,8 +88,55 @@ export default class UpowerBatteryExtension extends Extension {
 	}
 
 	_update() {
-		const devices = this._findDevices();
+		const devices = this._findDevices().concat(this._commandDevices ?? []);
+		devices.sort((a, b) => (a.name > b.name) ? 1 : ((b.name > a.name) ? -1 : ((a.path > b.path) ? 1 : -1)));
 		this._indicator.refresh(devices);
+	}
+
+	_readCommands() {
+		try {
+			const [, contents] = GLib.file_get_contents(COMMANDS_FILE);
+			return JSON.parse(new TextDecoder().decode(contents));
+		} catch (error) {
+			return [];
+		}
+	}
+
+	async _pollCommands() {
+		const devices = [];
+		for (const entry of this._readCommands()) {
+			const argv = entry.command.map((arg) => arg.replace(/^~(?=\/)/, GLib.get_home_dir()));
+			try {
+				const proc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE);
+				const stdout = await new Promise((resolve, reject) => {
+					proc.communicate_utf8_async(null, null, (p, res) => {
+						try {
+							resolve(p.communicate_utf8_finish(res)[1] ?? '');
+						} catch (error) {
+							reject(error);
+						}
+					});
+				});
+				for (const line of stdout.split('\n')) {
+					const match = line.match(/^\s*(.+?):\s*(\d+)\s*%/);
+					if (match) {
+						devices.push({
+							name: match[1],
+							path: 'command:' + match[1],
+							icon: entry.icon || 'battery-full-symbolic',
+							percentage: parseInt(match[2], 10),
+						});
+					}
+				}
+			} catch (error) {
+				LogError('Command error ' + argv.join(' ') + ': ' + error);
+			}
+		}
+		if (!this._indicator) {
+			return;
+		}
+		this._commandDevices = devices;
+		this._update();
 	}
 
 	_findDevices() {
@@ -158,6 +215,11 @@ export default class UpowerBatteryExtension extends Extension {
 			GLib.Source.remove(this._once);
 			this._once = null;
 		}
+		if (this._commandTimer) {
+			GLib.Source.remove(this._commandTimer);
+			this._commandTimer = null;
+		}
+		this._commandDevices = [];
 	}
 }
 

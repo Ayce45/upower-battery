@@ -24,3 +24,16 @@ This extension retrieve device's info using DBusProxy & GlibUPower, if you ever 
       journalctl /usr/bin/gnome-shell | grep upower-battery		   # this commmand will dump all gnome-shell log ever record
       journalctl -f /usr/bin/gnome-shell | grep upower-battery		# this will only show new log
 
+
+## Command devices (fork)
+
+Devices that UPower cannot see (for example a Jabra headset behind a USB dongle) can be read
+from a command. List them in `~/.config/upower-battery/commands.json`:
+
+```json
+[
+  { "command": ["~/.local/bin/jabridge", "battery"], "icon": "audio-headset-symbolic" }
+]
+```
+
+Each command runs every 2 minutes. Every output line shaped like `Name: 97%` becomes a device.
