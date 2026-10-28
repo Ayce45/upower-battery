@@ -37,3 +37,20 @@ from a command. List them in `~/.config/upower-battery/commands.json`:
 ```
 
 Each command runs every 2 minutes. Every output line shaped like `Name: 97%` becomes a device.
+
+### Example commands
+
+Ready-made scripts live in `examples/`:
+
+- `logi-battery`: Logitech devices behind a Logi Bolt receiver, which the kernel does not expose to
+  UPower. Reads them through [Solaar](https://pwr-solaar.github.io/Solaar/) (`solaar show`).
+- `bose-battery ADDRESS [NAME]`: Bose Bluetooth headsets (tested on a QuietComfort 35) whose battery
+  is only sent over the hands-free profile. Reads it with Bose's BMAP protocol over RFCOMM, and only
+  while the headset is connected so polling never wakes it up.
+
+```json
+[
+  { "command": ["~/.local/bin/logi-battery"], "icon": "input-mouse-symbolic" },
+  { "command": ["~/.local/bin/bose-battery", "4C:87:5D:CD:CB:EC", "Bose QC35"], "icon": "audio-headphones-symbolic" }
+]
+```

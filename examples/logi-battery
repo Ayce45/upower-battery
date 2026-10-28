@@ -1,0 +1,10 @@
+#!/bin/sh
+# Prints "Name: N%" for each Logitech device paired to a receiver, read through Solaar (HID++).
+timeout 20 solaar show 2>/dev/null | awk '
+	/^  [0-9]+: / { sub(/^  [0-9]+: /, ""); name = $0; done = 0; next }
+	name != "" && !done && /Battery: [0-9]+%/ {
+		match($0, /[0-9]+%/)
+		print name ": " substr($0, RSTART, RLENGTH)
+		done = 1
+	}
+'

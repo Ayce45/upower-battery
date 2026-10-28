@@ -1,0 +1,46 @@
+#!/usr/bin/env -S python3 -I
+# Usage: bose-battery ADDRESS [NAME]
+# Prints "NAME: N%" read over RFCOMM with Bose's BMAP protocol (no HFP needed).
+# Tested on a Bose QuietComfort 35.
+import socket
+import subprocess
+import sys
+import time
+
+if len(sys.argv) < 2:
+	sys.exit('usage: bose-battery ADDRESS [NAME]')
+ADDRESS = sys.argv[1]
+NAME = sys.argv[2] if len(sys.argv) > 2 else 'Bose headset'
+CHANNEL = 8
+
+# Opening RFCOMM to an absent headset would page it, so only query when already connected.
+info = subprocess.run(['bluetoothctl', 'info', ADDRESS], capture_output=True, text=True).stdout
+if 'Connected: yes' not in info:
+	sys.exit(0)
+
+def read_battery():
+	with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM) as sock:
+		sock.settimeout(5)
+		sock.connect((ADDRESS, CHANNEL))
+		sock.send(bytes([0x00, 0x01, 0x01, 0x00]))
+		sock.recv(64)
+		sock.send(bytes([0x02, 0x02, 0x01, 0x00]))
+		# The headset may push other frames first, so scan replies for the battery one.
+		for _ in range(5):
+			reply = sock.recv(64)
+			start = reply.find(bytes([0x02, 0x02, 0x03, 0x01]))
+			if start >= 0 and len(reply) > start + 4:
+				return reply[start + 4]
+	return None
+
+
+# The headset resets a connection opened too soon after the previous one, so retry once.
+for attempt in range(2):
+	try:
+		level = read_battery()
+		break
+	except OSError:
+		level = None
+		time.sleep(2)
+if level is not None:
+	print(f'{NAME}: {level}%')
